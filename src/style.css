@@ -164,3 +164,26 @@ button { background: none; border: 0; cursor: pointer; }
 .splash { position: fixed; pointer-events: none; z-index: 25; }
 
 @media (prefers-reduced-motion: reduce) { .drop.late { animation: none; } }
+
+/* esnek hatırlatmalar */
+.rules { margin-top: 12px; display: grid; gap: 8px; }
+.rule { display: flex; align-items: center; gap: 10px; padding: 11px 8px 11px 12px; border-radius: 14px; background: #fff; border: 2px solid #D5DDD6; font-weight: 700; cursor: pointer; }
+.rule.on { border-color: var(--ink); }
+.rule-ic { width: 30px; height: 30px; border-radius: 10px; display: grid; place-items: center; background: #E1F5EC; color: #1E9E6E; flex: none; }
+.rule.after .rule-ic { background: #FFE7E3; color: #D84315; }
+.rule-t { flex: 1; }
+.rule button { width: 34px; height: 34px; border-radius: 10px; font-size: 22px; line-height: 1; color: var(--mute); }
+.rem-ed { margin-top: 12px; padding: 14px; border-radius: 18px; background: var(--paper-2); }
+.rem-h { font-weight: 800; font-size: 14px; margin-bottom: 10px; }
+.seg3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.seg3 button { padding: 11px 4px; border-radius: 12px; background: #fff; font-weight: 800; font-size: 14px; }
+.seg3 button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.stepper { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; padding: 6px; border-radius: 14px; background: #fff; }
+.stepper button { width: 48px; height: 48px; border-radius: 12px; background: var(--paper-2); font-size: 26px; font-weight: 700; }
+.step-v { text-align: center; }
+.step-v b { display: block; font-family: var(--display); font-size: 30px; line-height: 1.05; }
+.step-v span { font-size: 13px; color: var(--mute); font-weight: 700; }
+.rem-ed .wheels { margin-top: 10px; }
+.rem-ed .wheel-box > span { margin-bottom: 2px; }
+.addrule { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-top: 12px; padding: 14px; border-radius: 14px; background: #1E9E6E; color: #fff; font-weight: 800; }
+.rem-ed .chip { background: #fff; }

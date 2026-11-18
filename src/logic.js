@@ -84,6 +84,20 @@ export function monthMap(state, y, m, today = todayStr()) {
 /* ---- hatırlatmalar ---- */
 const hash = (s) => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0; return Math.abs(h) % 2000000000; };
 
+/** Eski biçimi (offsets + tek saat) yeni kurallara çevirir.
+ * Kural: { d: gün (eksi = önce, 0 = aynı gün, artı = sonra), t: 'SS:DD' } */
+export function rulesOf(b) {
+  const r = b.remind || {};
+  if (Array.isArray(r.rules)) return r.rules;
+  const time = r.time || '09:00';
+  return (r.offsets && r.offsets.length ? r.offsets : [0]).map((o) => ({ d: -o, t: time }));
+}
+export function ruleText(rule) {
+  const n = Math.abs(rule.d);
+  const day = rule.d === 0 ? 'Son ödeme günü' : rule.d < 0 ? `${n} gün önce` : `${n} gün sonra`;
+  return `${day} · ${rule.t}`;
+}
+
 /** Planlanacak bildirimler: [{id, at: Date, title, body}] */
 export function plannedNotifications(state, now = new Date()) {
   const out = [];
@@ -91,8 +105,8 @@ export function plannedNotifications(state, now = new Date()) {
   for (const b of state.bills) {
     const r = b.remind || {};
     if (r.off) continue;
-    const [hh, mm] = (r.time || '09:00').split(':').map(Number);
-    const offsets = r.offsets && r.offsets.length ? r.offsets : [0];
+    const rules = rulesOf(b);
+    const dailyTime = r.dailyTime || (rules[0] && rules[0].t) || '09:00';
     const first = nextOpen(state, b, today);
     if (!first) continue;
     // ödenmemiş ilk dönem + sonraki 2 ay
@@ -100,22 +114,28 @@ export function plannedNotifications(state, now = new Date()) {
       const k = addMonths(first.period, i);
       if (isPaid(state, b.id, k)) continue;
       const due = dueDate(b, k);
-      const at = (dateStr, offset) => { const d = parse(dateStr); d.setDate(d.getDate() - offset); d.setHours(hh, mm, 0, 0); return d; };
-      for (const off of offsets) {
-        const when = at(due, off);
-        if (when > now) {
-          out.push({
-            id: hash(`${b.id}|${k}|${off}`),
-            at: when,
-            title: off === 0 ? `${b.name}: son ödeme günü bugün` : `${b.name}: ${off} gün sonra son ödeme`,
-            body: `Son ödeme ${fmtDay(due)}. Ödeyince Vade’de işaretle.`,
-            billId: b.id,
-          });
-        }
+      const at = (dateStr, shift, time) => {
+        const [hh, mm] = time.split(':').map(Number);
+        const d = parse(dateStr); d.setDate(d.getDate() + shift); d.setHours(hh, mm, 0, 0); return d;
+      };
+      const seen = new Set();
+      for (const rule of rules) {
+        const when = at(due, rule.d, rule.t);
+        if (when <= now) continue;
+        seen.add(rule.d);
+        const n = Math.abs(rule.d);
+        out.push({
+          id: hash(`${b.id}|${k}|${rule.d}|${rule.t}`),
+          at: when,
+          title: rule.d === 0 ? `${b.name}: son ödeme günü bugün` : rule.d < 0 ? `${b.name}: ${n} gün sonra son ödeme` : `${b.name} ödenmedi`,
+          body: rule.d > 0 ? `Son ödeme ${fmtDay(due)} idi, ${n} gün geçti. Ödediysen Vade’de işaretle.` : `Son ödeme ${fmtDay(due)}. Ödeyince Vade’de işaretle.`,
+          billId: b.id,
+        });
       }
       if (r.daily) {
         for (let d = 1; d <= 10; d++) {
-          const when = at(due, -d);
+          if (seen.has(d)) continue;
+          const when = at(due, d, dailyTime);
           if (when > now) {
             out.push({
               id: hash(`${b.id}|${k}|late${d}`),

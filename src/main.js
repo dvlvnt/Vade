@@ -8,7 +8,7 @@ import { Share } from '@capacitor/share';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { StatusBar, Style } from '@capacitor/status-bar';
 import {
-  CATS, catOf, CUR, money, MONTHS, DAYS_SHORT, ymd, parse, todayStr, periodKey, keyParts, addMonths, lastDay,
+  CATS, catOf, CUR, money, rulesOf, ruleText, MONTHS, DAYS_SHORT, ymd, parse, todayStr, periodKey, keyParts, addMonths, lastDay,
   dueDate, daysBetween, fmtDay, fmtDayShort, isPaid, paymentsFor, nextOpen, statusText, monthMap, plannedNotifications,
 } from './logic.js';
 
@@ -310,11 +310,12 @@ function wheel(host, values, start, onChange, fmt = (v) => v) {
   };
   let raf = 0;
   host.addEventListener('scroll', () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(mark); });
-  requestAnimationFrame(() => { host.scrollTop = Math.max(0, values.indexOf(start)) * 44; idx = -1; mark(); });
+  const set = (v) => { host.scrollTop = Math.max(0, values.indexOf(v)) * 44; idx = -1; mark(); };
+  requestAnimationFrame(() => set(start));
+  return { set };
 }
 
 /* ---------- fatura ekle / düzenle ---------- */
-const OFFSETS = [[0, 'Aynı gün'], [1, '1 gün önce'], [2, '2 gün önce'], [3, '3 gün önce'], [5, '5 gün önce'], [7, '7 gün önce']];
 function openBillSheet(id) {
   const ex = state.bills.find((b) => b.id === id);
   if (ex) return openBillDetail(ex);
@@ -324,8 +325,9 @@ function openBillSheet(id) {
 function openBillEditor(ex) {
   const f = ex ? JSON.parse(JSON.stringify(ex)) : {
     cat: 'elektrik', name: 'Elektrik', currency: 'EUR', dueDay: Math.min(new Date().getDate() + 7, 28),
-    remind: { offsets: [3, 0], time: '09:00', daily: false, off: false },
+    remind: { rules: [{ d: -3, t: '09:00' }, { d: 0, t: '09:00' }], daily: false, off: false },
   };
+  f.remind = { ...f.remind, rules: rulesOf(f).map((r) => ({ ...r })) };
   let nameTouched = !!ex;
   const html = `
     <h2>${ex ? 'Faturayı düzenle' : 'Fatura ekle'}</h2>
@@ -341,13 +343,26 @@ function openBillEditor(ex) {
     <span class="lab"><span class="bell" id="bell">${icon('bell', 16, 2.4)}</span> Hatırlatma</span>
     <button class="toggle" id="tOn" role="switch" aria-checked="${!f.remind.off}">Hatırlat<span class="sw"></span></button>
     <div id="remBox">
-      <div class="chips" id="offs">${OFFSETS.map(([v, l]) => `<button class="chip" data-off="${v}" aria-pressed="${f.remind.offsets.includes(v)}">${l}</button>`).join('')}</div>
-      <span class="lab">Saat</span>
-      <div class="wheels">
-        <div class="wheel-box"><div class="wheel-wrap"><div class="band"></div><div class="wheel" id="wH"></div></div></div>
-        <div class="wheel-box"><div class="wheel-wrap"><div class="band"></div><div class="wheel" id="wM"></div></div></div>
+      <div class="rules" id="rules"></div>
+      <div class="rem-ed">
+        <div class="rem-h" id="edTitle">Yeni hatırlatma</div>
+        <div class="seg3" id="dir">
+          <button data-dir="-1">Önce</button><button data-dir="0">Son gün</button><button data-dir="1">Sonra</button>
+        </div>
+        <div class="stepper" id="stepper">
+          <button id="dMinus" aria-label="Azalt">−</button>
+          <div class="step-v"><b id="dVal">3</b><span id="dLbl">gün önce</span></div>
+          <button id="dPlus" aria-label="Arttır">+</button>
+        </div>
+        <div class="wheels">
+          <div class="wheel-box"><span>Saat</span><div class="wheel-wrap"><div class="band"></div><div class="wheel" id="wH"></div></div></div>
+          <div class="wheel-box"><span>Dakika</span><div class="wheel-wrap"><div class="band"></div><div class="wheel" id="wM"></div></div></div>
+        </div>
+        <button class="addrule" id="addRule">${icon('plus', 18, 2.6)}<span id="addTxt">Hatırlatmayı ekle</span></button>
+        <div class="lab" style="margin-top:14px">Hızlı ekle (seçili saatle)</div>
+        <div class="chips">${[[-7, '1 hafta önce'], [-3, '3 gün önce'], [-1, '1 gün önce'], [0, 'Son gün'], [1, '1 gün sonra'], [3, '3 gün sonra']].map(([d, l]) => `<button class="chip" data-quick="${d}">${l}</button>`).join('')}</div>
       </div>
-      <button class="toggle" id="tDaily" role="switch" aria-checked="${!!f.remind.daily}"><span>Ödenene kadar her gün hatırlat<small>Son ödeme günü geçerse 10 güne kadar her gün aynı saatte</small></span><span class="sw"></span></button>
+      <button class="toggle" id="tDaily" role="switch" aria-checked="${!!f.remind.daily}"><span>Ödenene kadar her gün hatırlat<small>Son ödeme günü geçerse 10 güne kadar her gün, seçili saatte</small></span><span class="sw"></span></button>
     </div>
     <button class="save" id="bSave">${ex ? 'Kaydet' : 'Faturayı ekle'}</button>
     ${ex ? '<button class="link" id="bDel">Faturayı sil</button>' : ''}`;
@@ -360,11 +375,46 @@ function openBillEditor(ex) {
       q('#dueTxt').innerHTML = `Her ayın <b>${f.dueDay}</b>’${f.dueDay >= 29 ? ' (kısa aylarda son gün)' : 'i'}<br><span style="color:var(--mute);font-weight:600">Sonraki: ${fmtDay(dueDate(f, k))}</span>`;
     };
     wheel(q('#wDay'), Array.from({ length: 31 }, (_, i) => i + 1), f.dueDay, (v) => { f.dueDay = v; paintDue(); });
-    const [hh, mm] = f.remind.time.split(':').map(Number);
-    let H = hh;
-    let M = mm - (mm % 5);
-    wheel(q('#wH'), Array.from({ length: 24 }, (_, i) => i), H, (v) => { H = v; }, (v) => String(v).padStart(2, '0'));
-    wheel(q('#wM'), Array.from({ length: 12 }, (_, i) => i * 5), M, (v) => { M = v; }, (v) => String(v).padStart(2, '0'));
+    let H = 9;
+    let M = 0;
+    let dir = -1;
+    let days = 3;
+    let editing = -1;
+    const hW = wheel(q('#wH'), Array.from({ length: 24 }, (_, i) => i), H, (v) => { H = v; }, (v) => String(v).padStart(2, '0'));
+    const mW = wheel(q('#wM'), Array.from({ length: 12 }, (_, i) => i * 5), M, (v) => { M = v; }, (v) => String(v).padStart(2, '0'));
+    const timeStr = () => `${String(H).padStart(2, '0')}:${String(M).padStart(2, '0')}`;
+    const paintEd = () => {
+      sh.querySelectorAll('[data-dir]').forEach((x) => x.setAttribute('aria-pressed', +x.dataset.dir === dir));
+      q('#stepper').style.display = dir === 0 ? 'none' : '';
+      q('#dVal').textContent = days;
+      q('#dLbl').textContent = dir < 0 ? 'gün önce' : 'gün sonra';
+      q('#edTitle').textContent = editing >= 0 ? 'Hatırlatmayı düzenle' : 'Yeni hatırlatma';
+      q('#addTxt').textContent = editing >= 0 ? 'Değişikliği kaydet' : 'Hatırlatmayı ekle';
+    };
+    const sortRules = () => f.remind.rules.sort((a, b) => a.d - b.d || (a.t < b.t ? -1 : 1));
+    const paintRules = (fresh) => {
+      sortRules();
+      q('#rules').innerHTML = f.remind.rules.length ? f.remind.rules.map((r, i) => `
+        <div class="rule ${i === editing ? 'on' : ''} ${r.d > 0 ? 'after' : ''}" data-ri="${i}">
+          <span class="rule-ic">${icon('bell', 16, 2.4)}</span><span class="rule-t">${ruleText(r)}</span>
+          <button data-rdel="${i}" aria-label="Sil">×</button>
+        </div>`).join('') : '<div class="hint">Henüz hatırlatma yok. Aşağıdan ekle.</div>';
+      if (fresh != null && !reduced) {
+        const row = sh.querySelector(`[data-ri="${fresh}"]`);
+        if (row) animate(row, { opacity: [0, 1], x: [-20, 0], scale: [0.96, 1] }, { type: 'spring', stiffness: 380, damping: 24 });
+      }
+    };
+    const pushRule = (rule) => {
+      if (f.remind.rules.some((r, i) => i !== editing && r.d === rule.d && r.t === rule.t)) { toast('Bu hatırlatma zaten var'); return; }
+      if (editing >= 0) f.remind.rules[editing] = rule; else f.remind.rules.push(rule);
+      editing = -1;
+      sortRules();
+      paintRules(f.remind.rules.findIndex((r) => r.d === rule.d && r.t === rule.t));
+      paintEd();
+      ring();
+    };
+    paintEd();
+    paintRules();
     const paintRem = () => {
       q('#remBox').style.display = f.remind.off ? 'none' : '';
       q('#tOn').setAttribute('aria-checked', !f.remind.off);
@@ -382,16 +432,34 @@ function openBillEditor(ex) {
       }
       const cu = e.target.closest('[data-cur]');
       if (cu) { f.currency = cu.dataset.cur; sh.querySelectorAll('[data-cur]').forEach((x) => x.setAttribute('aria-pressed', x === cu)); return; }
-      const o = e.target.closest('[data-off]');
-      if (o) {
-        const v = +o.dataset.off;
-        f.remind.offsets = f.remind.offsets.includes(v) ? f.remind.offsets.filter((x) => x !== v) : [...f.remind.offsets, v].sort((a, b) => b - a);
-        o.setAttribute('aria-pressed', f.remind.offsets.includes(v));
-        ring();
+      const dd = e.target.closest('[data-dir]');
+      if (dd) { dir = +dd.dataset.dir; if (dir !== 0 && days < 1) days = 1; paintEd(); return; }
+      if (e.target.closest('#dMinus')) { days = Math.max(1, days - 1); paintEd(); if (!reduced) animate(q('#dVal'), { y: [6, 0] }, { duration: 0.15 }); return; }
+      if (e.target.closest('#dPlus')) { days = Math.min(60, days + 1); paintEd(); if (!reduced) animate(q('#dVal'), { y: [-6, 0] }, { duration: 0.15 }); return; }
+      if (e.target.closest('#addRule')) { pushRule({ d: dir * days, t: timeStr() }); return; }
+      const qk = e.target.closest('[data-quick]');
+      if (qk) { editing = -1; pushRule({ d: +qk.dataset.quick, t: timeStr() }); return; }
+      const del = e.target.closest('[data-rdel]');
+      if (del) {
+        const i = +del.dataset.rdel;
+        const row = del.closest('.rule');
+        const done = () => { f.remind.rules.splice(i, 1); if (editing === i) editing = -1; else if (editing > i) editing--; paintRules(); paintEd(); };
+        if (reduced) done(); else animate(row, { opacity: 0, x: 40 }, { duration: 0.2 }).then(done);
+        return;
+      }
+      const row = e.target.closest('[data-ri]');
+      if (row) {
+        editing = +row.dataset.ri;
+        const r = f.remind.rules[editing];
+        dir = Math.sign(r.d); days = Math.abs(r.d) || 3;
+        const [h, m] = r.t.split(':').map(Number);
+        hW.set(h); mW.set(m - (m % 5));
+        paintEd(); paintRules();
+        q('.rem-ed').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         return;
       }
       if (e.target.closest('#tOn')) { f.remind.off = !f.remind.off; paintRem(); ring(); return; }
-      if (e.target.closest('#tDaily')) { f.remind.daily = !f.remind.daily; q('#tDaily').setAttribute('aria-checked', f.remind.daily); ring(); return; }
+      if (e.target.closest('#tDaily')) { f.remind.daily = !f.remind.daily; f.remind.dailyTime = timeStr(); q('#tDaily').setAttribute('aria-checked', f.remind.daily); ring(); return; }
       if (e.target.closest('#bDel')) {
         if (!confirm(`${f.name} faturası ve ödeme geçmişi silinsin mi?`)) return;
         state.bills = state.bills.filter((b) => b.id !== ex.id);
@@ -402,8 +470,9 @@ function openBillEditor(ex) {
       }
       if (e.target.closest('#bSave')) {
         f.name = q('#bName').value.trim() || catOf(f.cat).name;
-        f.remind.time = `${String(H).padStart(2, '0')}:${String(M).padStart(2, '0')}`;
-        if (!f.remind.offsets.length && !f.remind.daily) f.remind.offsets = [0];
+        delete f.remind.offsets;
+        delete f.remind.time;
+        if (!f.remind.rules.length && !f.remind.daily) f.remind.off = true;
         if (ex) {
           Object.assign(ex, f);
         } else {
@@ -428,7 +497,7 @@ function openBillDetail(b) {
   const pays = state.payments.filter((p) => p.billId === b.id).sort((x, y) => (x.date < y.date ? 1 : -1));
   const total = pays.reduce((s, p) => s + p.amount, 0);
   const r = b.remind || {};
-  const remTxt = r.off ? 'Hatırlatma kapalı' : `${(r.offsets || []).map((o) => (o === 0 ? 'aynı gün' : `${o} gün önce`)).join(', ')} · ${r.time}${r.daily ? ' · ödenene kadar her gün' : ''}`;
+  const remTxt = r.off ? 'Hatırlatma kapalı' : [...rulesOf(b).map(ruleText), r.daily ? 'ödenene kadar her gün' : ''].filter(Boolean).join(', ');
   const html = `
     <div style="display:flex;align-items:center;gap:14px">
       <span class="ic" style="--c:${c.color};background:${c.color}33;color:${c.color === '#C9D3CE' ? '#6C7C75' : c.color}">${icon(c.icon, 26)}</span>
