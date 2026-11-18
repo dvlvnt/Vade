@@ -1,0 +1,9 @@
+{
+  "appId": "com.dvlvnt.vade",
+  "appName": "Vade",
+  "webDir": "dist",
+  "backgroundColor": "#12352C",
+  "plugins": {
+    "LocalNotifications": { "smallIcon": "ic_stat_vade", "iconColor": "#1E9E6E" }
+  }
+}
